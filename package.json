@@ -1,0 +1,38 @@
+{
+  "name": "031_rgac",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "customers": [
+    {
+      "name": "John Doe",
+      "phone": "+2348000000000",
+      "lastService": "2025-06-18"
+    },
+    {
+      "name": "Jane Smith",
+      "phone": "+2348111111111",
+      "lastService": "2025-07-10"
+    }
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@sendgrid/mail": "^8.1.6",
+    "date-fns": "^4.1.0",
+    "dotenv": "^17.2.2",
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0",
+    "googleapis": "^160.0.0",
+    "luxon": "^3.7.2",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^7.0.6",
+    "sendgrid": "^5.2.3",
+    "twilio": "^5.10.0"
+  }
+}
