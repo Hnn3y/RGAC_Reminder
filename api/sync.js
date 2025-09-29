@@ -1,4 +1,4 @@
-import { syncAndNotify } from '../index.js';
+import { syncAndNotify } from '../index';
 
 export default async function handler(req, res) {
   try {
