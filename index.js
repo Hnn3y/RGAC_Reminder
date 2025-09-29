@@ -201,3 +201,7 @@ export async function sendEmail({ to, subject, text, html }, envOverride) {
 }
 
 export default syncAndNotify;
+
+console.log("GOOGLE_CLIENT_EMAIL:", process.env.GOOGLE_CLIENT_EMAIL);
+console.log("GOOGLE_PRIVATE_KEY starts with:", process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_PRIVATE_KEY.slice(0, 30));
+console.log("GOOGLE_PROJECT_ID:", process.env.GOOGLE_PROJECT_ID);

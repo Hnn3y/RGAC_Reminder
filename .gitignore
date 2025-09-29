@@ -1,6 +1,6 @@
 # Dependencies
 */node_modules/
-config/google.json
+.google.json
 
 # Logs
 *.log
@@ -108,3 +108,5 @@ lerna-debug.log
 .DS_Store
 Thumbs.db
 .vercel
+.config
+config/
