@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import fs from 'fs';
+//import fs from 'fs';
 import { google } from 'googleapis';
 import { DateTime } from 'luxon';
 import nodemailer from 'nodemailer';
@@ -14,7 +14,7 @@ function convertSerialToDate(serial) {
 }
 
 
-const KEYFILE = process.env.GOOGLE_CREDENTIALS_PATH || './config/google.json';
+// const KEYFILE = process.env.GOOGLE_CREDENTIALS_PATH || './config/google.json';
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const MASTER_SHEET = process.env.MASTER_SHEET || 'Master';
 const REMINDERS_SHEET = process.env.REMINDERS_SHEET || 'Reminders';
@@ -34,11 +34,6 @@ if (!SPREADSHEET_ID) {
   console.error('SPREADSHEET_ID must be set in .env');
   process.exit(1);
 }
-if (!fs.existsSync(KEYFILE)) {
-  console.error('Google credentials file not found at', KEYFILE);
-  process.exit(1);
-}
-
 
 const auth = new google.auth.GoogleAuth({
   credentials: {
