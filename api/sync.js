@@ -1,4 +1,4 @@
-import { syncAndNotify } from '../../sync.js'; // your existing logic
+import { syncAndNotify } from '../index.js';  
 
 export default async function handler(req, res) {
   try {
