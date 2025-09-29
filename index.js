@@ -336,10 +336,13 @@ if (!isNaN(c.lastRaw)) {
   console.log('Sync complete. Reminders sheet & Master_Sorted updated. Status Log appended for sends.');
 }
 
+if (import.meta.url === `file://${process.argv[1]}`) {
+  syncAndNotify().catch(err => {
+    console.error('Fatal error in syncAndNotify:', err);
+    process.exit(1);
+  });
+}
 
-syncAndNotify().catch(err => {
-  console.error('Fatal error in syncAndNotify:', err);
-  process.exit(1);
-});
+export { syncAndNotify };
 
 
