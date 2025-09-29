@@ -1,11 +1,15 @@
 import { syncAndNotify } from '../src/index.js';
 
-export default async function handler(req, res) {
+export const config = {
+  runtime: 'edge',
+  schedule: '0 9 * * *', // run daily at 9 AM UTC
+};
+
+export default async function handler() {
   try {
     await syncAndNotify();
-    res.status(200).json({ message: 'Sync complete and notifications processed' });
+    return new Response(JSON.stringify({ message: 'Sync complete via cron' }), { status: 200 });
   } catch (err) {
-    console.error('Error in sync API:', err);
-    res.status(500).json({ error: err.message });
+    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
   }
 }
