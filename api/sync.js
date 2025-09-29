@@ -279,6 +279,6 @@ export default async function handler(req, res) {
 
 // ---------- OPTIONAL CRON CONFIG ----------
 export const config = {
-  runtime: 'edge',
+  runtime: 'nodejs',
   schedule: '0 9 * * *', // Daily at 9 AM UTC
 };
