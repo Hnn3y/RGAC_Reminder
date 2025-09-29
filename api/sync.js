@@ -37,19 +37,15 @@ const sheets = google.sheets({ version: "v4", auth });
 // ---------- EMAIL SENDER ----------
 let emailSender = null;
 
-if (EMAIL_PROVIDER === 'gmail') {
-  if (EMAIL_USER && EMAIL_PASS) {
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: EMAIL_USER, pass: EMAIL_PASS },
-    });
-    emailSender = async (to, subject, text) => transporter.sendMail({ from: EMAIL_USER, to, subject, text });
-  }
-} else if (EMAIL_PROVIDER === 'sendgrid') {
-  if (SENDGRID_API_KEY) {
-    sgMail.setApiKey(SENDGRID_API_KEY);
-    emailSender = async (to, subject, text) => sgMail.send({ to, from: EMAIL_FROM, subject, text });
-  }
+if (EMAIL_PROVIDER === 'gmail' && EMAIL_USER && EMAIL_PASS) {
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: EMAIL_USER, pass: EMAIL_PASS },
+  });
+  emailSender = async (to, subject, text) => transporter.sendMail({ from: EMAIL_USER, to, subject, text });
+} else if (EMAIL_PROVIDER === 'sendgrid' && SENDGRID_API_KEY) {
+  sgMail.setApiKey(SENDGRID_API_KEY);
+  emailSender = async (to, subject, text) => sgMail.send({ to, from: EMAIL_FROM, subject, text });
 }
 
 // ---------- UTILITY FUNCTIONS ----------
@@ -61,38 +57,27 @@ function serialToJSDate(serial) {
 }
 
 function isoDateFromAny(value) {
-  if (value === null || value === undefined || value === '') return null;
-
+  if (value == null || value === '') return null;
   if (typeof value === 'number' || (!isNaN(value) && typeof value !== 'object')) {
-    const maybeDate = serialToJSDate(value);
-    if (maybeDate instanceof Date && !Number.isNaN(maybeDate.getTime())) {
-      return DateTime.fromJSDate(maybeDate, { zone: 'utc' }).toISODate();
-    }
+    const d = serialToJSDate(value);
+    if (d instanceof Date && !isNaN(d.getTime())) return DateTime.fromJSDate(d, { zone: 'utc' }).toISODate();
   }
-
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return DateTime.fromJSDate(value, { zone: 'utc' }).toISODate();
-
+  if (value instanceof Date && !isNaN(value.getTime())) return DateTime.fromJSDate(value, { zone: 'utc' }).toISODate();
   const s = String(value).trim();
   if (!s) return null;
 
   let dt = DateTime.fromISO(s, { zone: 'utc' });
   if (dt.isValid) return dt.toISODate();
-
   dt = DateTime.fromFormat(s, 'dd-MM-yyyy', { zone: 'utc' });
   if (dt.isValid) return dt.toISODate();
-
   dt = DateTime.fromFormat(s, 'dd/MM/yyyy', { zone: 'utc' });
   if (dt.isValid) return dt.toISODate();
-
   dt = DateTime.fromFormat(s, 'MM/dd/yyyy', { zone: 'utc' });
   if (dt.isValid) return dt.toISODate();
-
   dt = DateTime.fromRFC2822(s, { zone: 'utc' });
   if (dt.isValid) return dt.toISODate();
-
   const js = new Date(s);
-  if (!Number.isNaN(js.getTime())) return DateTime.fromJSDate(js, { zone: 'utc' }).toISODate();
-
+  if (!isNaN(js.getTime())) return DateTime.fromJSDate(js, { zone: 'utc' }).toISODate();
   return null;
 }
 
@@ -105,8 +90,7 @@ function isoToDisplayDDMMYYYY(iso) {
 
 async function ensureSheetExists(sheetName) {
   const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
-  const found = (meta.data.sheets || []).find(s => s.properties.title === sheetName);
-  if (!found) {
+  if (!(meta.data.sheets || []).some(s => s.properties.title === sheetName)) {
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId: SPREADSHEET_ID,
       requestBody: { requests: [{ addSheet: { properties: { title: sheetName } } }] }
@@ -121,9 +105,9 @@ async function readMaster() {
     valueRenderOption: 'UNFORMATTED_VALUE',
   });
   const values = res.data.values || [];
-  if (values.length === 0) return { headers: [], rows: [] };
-  const headers = values[0].map(h => (h === undefined ? '' : String(h).trim()));
-  const rows = values.slice(1).map(r => r.map(cell => (cell === undefined ? '' : cell)));
+  if (!values.length) return { headers: [], rows: [] };
+  const headers = values[0].map(h => String(h || '').trim());
+  const rows = values.slice(1).map(r => r.map(c => c || ''));
   return { headers, rows };
 }
 
@@ -149,23 +133,17 @@ async function appendStatusLog(row) {
 }
 
 async function updateMasterColumn(headerIndex, rowsData) {
-  const toCol = (n) => {
-    let s = '';
-    while (n > 0) {
-      const rem = (n - 1) % 26;
-      s = String.fromCharCode(65 + rem) + s;
-      n = Math.floor((n - 1) / 26);
-    }
+  const colLetter = (() => {
+    let s = '', n = headerIndex + 1;
+    while (n > 0) { s = String.fromCharCode(65 + (n - 1) % 26) + s; n = Math.floor((n - 1)/26); }
     return s;
-  };
-  const colLetter = toCol(headerIndex + 1);
+  })();
   const startRow = 2;
   const endRow = startRow + rowsData.length - 1;
-  const range = `${MASTER_SHEET}!${colLetter}${startRow}:${colLetter}${endRow}`;
   const values = rowsData.map(v => [v || '']);
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
-    range,
+    range: `${MASTER_SHEET}!${colLetter}${startRow}:${colLetter}${endRow}`,
     valueInputOption: 'RAW',
     requestBody: { values }
   });
@@ -174,10 +152,10 @@ async function updateMasterColumn(headerIndex, rowsData) {
 // ---------- MAIN SYNC FUNCTION ----------
 async function syncAndNotify() {
   const { headers, rows } = await readMaster();
-  if (!headers.length) throw new Error('Master sheet empty or missing headers.');
+  if (!headers.length) throw new Error('Master sheet empty');
 
-  const lowered = headers.map(h => (h || '').toString().toLowerCase());
-  const pickIndex = (variants) => variants.map(v => lowered.indexOf(v.toLowerCase())).find(i => i >= 0) ?? -1;
+  const lowered = headers.map(h => h.toLowerCase());
+  const pickIndex = variants => variants.map(v => lowered.indexOf(v.toLowerCase())).find(i => i >= 0) ?? -1;
 
   const idxName = pickIndex(['name', 'customer name', 'full name']);
   const idxPlate = pickIndex(['plate number', 'plate', 'plate_no']);
@@ -204,10 +182,7 @@ async function syncAndNotify() {
 
   for (const c of customers) {
     let isoLast = !isNaN(c.lastRaw) ? DateTime.fromJSDate(serialToJSDate(c.lastRaw), { zone: 'utc' }).toISODate() : isoDateFromAny(c.lastRaw);
-    let nextDisplay = '';
-    if (isoLast) {
-      nextDisplay = isoToDisplayDDMMYYYY(DateTime.fromISO(isoLast, { zone: 'utc' }).plus({ months: 3 }).toISODate());
-    }
+    let nextDisplay = isoLast ? isoToDisplayDDMMYYYY(DateTime.fromISO(isoLast, { zone: 'utc' }).plus({ months: 3 }).toISODate()) : '';
     nextDatesDisplay.push(nextDisplay);
     manualFlags.push(!c.email && !c.phone ? 'MISSING CONTACT' : '');
   }
@@ -220,46 +195,34 @@ async function syncAndNotify() {
   remindersRows.sort((a,b) => String(a[0]||'').toLowerCase().localeCompare(String(b[0]||'').toLowerCase()));
   await writeSheet(REMINDERS_SHEET, [remindersHeader, ...remindersRows]);
 
-  const masterRowsWithHeader = [headers, ...customers.map((c, i) => {
-    const originalRow = rows[c.originalRow - 2] || [];
-    const rowCopy = originalRow.slice();
-    while (rowCopy.length < headers.length) rowCopy.push('');
-    rowCopy[idxNext] = nextDatesDisplay[i];
-    rowCopy[idxManual] = manualFlags[i];
-    return rowCopy;
-  })];
+  const masterSortedValues = [headers, ...customers.map((c,i) => {
+    const row = rows[c.originalRow-2].slice();
+    while (row.length < headers.length) row.push('');
+    row[idxNext] = nextDatesDisplay[i];
+    row[idxManual] = manualFlags[i];
+    return row;
+  }).sort((r1,r2) => String(r1[idxName]||'').toLowerCase().localeCompare(String(r2[idxName]||'').toLowerCase()))];
 
-  const masterSortedValues = [headers, ...masterRowsWithHeader.slice(1).slice().sort((r1, r2) => String(r1[idxName]||'').toLowerCase().localeCompare(String(r2[idxName]||'').toLowerCase()))];
   await writeSheet(MASTER_SORTED_SHEET, masterSortedValues);
   if (OVERWRITE_MASTER) await writeSheet(MASTER_SHEET, masterSortedValues);
 
   const todayISO = DateTime.utc().toISODate();
-  for (let i = 0; i < customers.length; i++) {
+  for (let i=0;i<customers.length;i++) {
     const c = customers[i];
     const nextDisplay = nextDatesDisplay[i];
     if (!nextDisplay) continue;
-    const parsed = DateTime.fromFormat(nextDisplay, 'dd-MM-yyyy', { zone: 'utc' });
+    const parsed = DateTime.fromFormat(nextDisplay,'dd-MM-yyyy',{zone:'utc'});
     if (!parsed.isValid) continue;
-
     const dueISO = parsed.minus({ days: SEND_OFFSET_DAYS }).toISODate();
-    if (dueISO <= todayISO) {
-      let sendResult = 'skipped', note = '';
-      if (emailSender && c.email) {
-        try {
-          const subject = `Service Reminder for ${c.name || c.plate || ''}`;
-          const body = `Dear ${c.name || ''},\n\nThis is a reminder that your vehicle (${c.plate || ''}) is due for service on ${nextDisplay}.\n\nKindly book an appointment.\n\nBest regards,\nAuto Shop`;
-          await emailSender(c.email, subject, body);
-          sendResult = 'sent';
-          note = 'Email sent';
-        } catch (err) {
-          sendResult = 'failed';
-          note = String(err.message || err);
-        }
-      } else {
-        sendResult = 'no-email';
-        note = 'No email or email sender not configured';
+    if (dueISO <= todayISO && emailSender && c.email) {
+      try {
+        const subject = `Service Reminder for ${c.name || c.plate || ''}`;
+        const body = `Dear ${c.name || ''},\n\nYour vehicle (${c.plate || ''}) is due for service on ${nextDisplay}.\n\nBook your appointment.\n\nBest regards,\nAuto Shop`;
+        await emailSender(c.email, subject, body);
+        await appendStatusLog([DateTime.utc().toISO(), c.name, c.plate, 'email', c.email, 'sent', 'Email sent']);
+      } catch (err) {
+        await appendStatusLog([DateTime.utc().toISO(), c.name, c.plate, 'email', c.email, 'failed', err.message]);
       }
-      await appendStatusLog([DateTime.utc().toISO(), c.name, c.plate, 'email', c.email || '', sendResult, note]);
     }
   }
 
@@ -267,16 +230,6 @@ async function syncAndNotify() {
 }
 
 // ---------- VERCEL HANDLER ----------
-export default async function handler(req, res) {
-  try {
-    const result = await syncAndNotify();
-    res.status(200).json(result);
-  } catch (err) {
-    console.error('Error in sync API:', err);
-    res.status(500).json({ error: err.message });
-  }
-}
-
 export const config = { runtime: 'nodejs' };
 
 export default async function handler(req, res) {
@@ -288,4 +241,3 @@ export default async function handler(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
-
