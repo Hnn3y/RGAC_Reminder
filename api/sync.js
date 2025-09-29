@@ -277,8 +277,15 @@ export default async function handler(req, res) {
   }
 }
 
-// ---------- OPTIONAL CRON CONFIG ----------
-export const config = {
-  runtime: 'nodejs',
-  schedule: '0 9 * * *', // Daily at 9 AM UTC
-};
+export const config = { runtime: 'nodejs' };
+
+export default async function handler(req, res) {
+  try {
+    const result = await syncAndNotify();
+    res.status(200).json(result);
+  } catch (err) {
+    console.error('Error in sync API:', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
