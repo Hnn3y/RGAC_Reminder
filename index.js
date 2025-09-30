@@ -55,7 +55,7 @@ export async function mainSync() {
 
   // 5. Write processed customers to Reminders and update Master (reminder fields only)
   await writeProcessedData(sheets, processedCustomers, ensuredHeader, SHEET_NAMES.REMINDERS);
-  await updateReminderFieldsInMaster(sheets, processedCustomers, ensuredHeader, SHEET_NAMES.MASTER);
+  await writeProcessedData(sheets, processedCustomers, ensuredHeader, SHEET_NAMES.MASTER);
 
   // 6. Send due emails and log results
   const today = DateTime.now().toISODate();
