@@ -24,14 +24,14 @@ const SHEET_NAMES = {
 };
 
 const REQUIRED_COLUMNS = [
-  "Name",
-  "Plate Number",
-  "Email",
-  "Phone",
-  "Last Visit",
-  "Next Reminder Date",
-  "Manual Contact",
-  "Status",
+  "Name",
+  "Plate Number",
+  "Email Add.", // ✅ Use your actual header
+  "Phone Number", // ✅ Use your actual header
+  "Last Visit",
+  "Next Reminder Date",
+  "Manual Contact",
+  "Status",
 ];
 
 export async function mainSync() {
