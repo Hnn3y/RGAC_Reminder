@@ -344,11 +344,11 @@ function regularEmailTemplate(customer) {
     subject: `Service Reminder for ${customer["Name"]}`,
     text: (
       `Dear ${customer["Name"] || "Customer"},\n\n` +
-      `This is a friendly reminder that your vehicle (Plate Number: ${customer["Plate Number"]}) is due for service.\n` +
-      `Last serviced: ${customer["Last Visit"]}\n` +
-      `Recommended next service: ${customer["Next Reminder Date"]}\n\n` +
+      `This is a friendly reminder that your vehicle (Plate Number: ${customer["Plate Number"]}) is due for service at Royal Gem AutoCare.\n` +
+      `Your Last serviced date was on: ${customer["Last Visit"]}\n` +
+      `Recommended next service date: ${customer["Next Reminder Date"]}\n\n` +
       `Please contact us to schedule your appointment.\n\n` +
-      `Best regards,\nService Team`
+      `Best regards,\nRoyal Gem Auto Care Service Team`
     )
   };
 }
