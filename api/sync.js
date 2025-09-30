@@ -1,10 +1,14 @@
-import { syncAndNotify } from '../index.js';
+import { mainSync } from "../index.js";
 
 export default async function handler(req, res) {
-  try {
-    const result = await syncAndNotify(process.env);
-    res.status(200).json(result);
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
+  if (req.method !== "GET") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
   }
-} 
+  try {
+    const result = await mainSync();
+    res.status(200).json({ ok: true, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+}
