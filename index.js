@@ -368,32 +368,33 @@ function overdueEmailTemplate(customer) {
 }
 
 async function sendEmail(to, { subject, text }) {
-  if (EMAIL_PROVIDER === "gmail") {
+  if (EMAIL_PROVIDER === "smtp") {
     const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,   // e.g., "smtp.gmail.com" or your company SMTP
-      port: process.env.SMTP_PORT,   // usually 465 (secure) or 587 (TLS)
-      secure: process.env.SMTP_SECURE === 'true', // true if port 465
+      host: process.env.SMTP_HOST,          // e.g., "smtp.gmail.com"
+      port: Number(process.env.SMTP_PORT),  // 465 or 587
+      secure: process.env.SMTP_SECURE === "true", 
       auth: {
-        user: process.env.SMTP_USER,  // your company email address
-        pass: process.env.SMTP_PASS,  // app password or SMTP password
+        user: EMAIL_USER,  // use EMAIL_USER from env
+        pass: EMAIL_PASS,  // use EMAIL_PASS from env
       },
     });
-    
-    // when sending reminder:
+
     await transporter.sendMail({
-      from: `"Company Name" <${process.env.SMTP_USER}>`,  // must match auth user
-      to: client.email,
-      subject: `Service Reminder: ${client.name}`,
-      text: `Hello ${client.name},\n\nThis is a reminder that your next service is due on ${client.nextReminder}.\n\n- Company`,
+      from: `"Company Name" <${EMAIL_USER}>`, // must match auth user
+      to,
+      subject,
+      text,
     });
+
   } else if (EMAIL_PROVIDER === "sendgrid") {
     sgMail.setApiKey(SENDGRID_API_KEY);
     await sgMail.send({
       to,
-      from: EMAIL_USER, // must be a verified sender
+      from: EMAIL_USER, // must be a verified sender in SendGrid
       subject,
-      text
+      text,
     });
+
   } else {
     throw new Error("Unknown EMAIL_PROVIDER: " + EMAIL_PROVIDER);
   }
