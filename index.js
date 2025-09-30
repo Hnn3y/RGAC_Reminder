@@ -153,8 +153,8 @@ function processCustomers(rows, header) {
     }
 
     // Manual Contact if no email/phone
-    const hasEmail = Boolean(obj["Email"]);
-    const hasPhone = Boolean(obj["Phone"]);
+    const hasEmail = Boolean(obj["Email Add."]);
+    const hasPhone = Boolean(obj["Phone Number"]);
     obj["Manual Contact"] = (!hasEmail && !hasPhone) ? "MISSING CONTACT" : "";
 
     // Status can be updated elsewhere if needed
