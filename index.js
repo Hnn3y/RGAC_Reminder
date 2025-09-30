@@ -146,8 +146,10 @@ function processCustomers(rows, header) {
     if (lastVisit) {
       nextReminder = lastVisit.plus({ months: 3 }).toISODate();
       obj["Next Reminder Date"] = nextReminder;
+      console.log(`Customer: ${obj["Name"]}, Last Visit: ${obj["Last Visit"]}, Next Reminder: ${nextReminder}`);
     } else {
       obj["Next Reminder Date"] = "";
+      console.log(`Customer: ${obj["Name"]}, No valid Last Visit date found: "${obj["Last Visit"]}"`);
     }
 
     // Manual Contact if no email/phone
@@ -163,11 +165,29 @@ function processCustomers(rows, header) {
 
 function parseDate(str) {
   if (!str) return null;
-  // Accepts ISO, or dd/MM/yyyy, or MM/dd/yyyy
+  
+  // Try multiple date formats
+  const formats = [
+    "yyyy-MM-dd",      // ISO: 2025-12-09
+    "dd/MM/yyyy",      // 09/12/2025
+    "MM/dd/yyyy",      // 12/09/2025
+    "dd-MM-yyyy",      // 09-12-2025 (YOUR FORMAT!)
+    "MM-dd-yyyy",      // 12-09-2025
+    "d/M/yyyy",        // 9/12/2025 (single digit)
+    "d-M-yyyy",        // 9-12-2025 (single digit)
+  ];
+  
+  // First try ISO parsing
   let dt = DateTime.fromISO(str);
-  if (!dt.isValid) dt = DateTime.fromFormat(str, "dd/MM/yyyy");
-  if (!dt.isValid) dt = DateTime.fromFormat(str, "MM/dd/yyyy");
-  return dt.isValid ? dt : null;
+  if (dt.isValid) return dt;
+  
+  // Try each format
+  for (const format of formats) {
+    dt = DateTime.fromFormat(str, format);
+    if (dt.isValid) return dt;
+  }
+  
+  return null;
 }
 
 async function writeProcessedData(sheets, customers, header, sheetName) {
@@ -204,7 +224,12 @@ async function updateReminderFieldsInMaster(sheets, customers, header, sheetName
     
     if (!customer) return row;
     
+    // Ensure row has enough cells
     const newRow = [...row];
+    while (newRow.length < masterHeader.length) {
+      newRow.push("");
+    }
+    
     for (const field of fieldsToUpdate) {
       if (idx[field] !== undefined) {
         newRow[idx[field]] = customer[field] || "";
@@ -217,7 +242,7 @@ async function updateReminderFieldsInMaster(sheets, customers, header, sheetName
   if (updatedRows.length > 0) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: GOOGLE_SHEET_ID,
-      range: `${sheetName}!A2:${String.fromCharCode(65 + masterHeader.length - 1)}${updatedRows.length + 1}`,
+      range: `${sheetName}!A2`,
       valueInputOption: "RAW",
       requestBody: { values: updatedRows },
     });
