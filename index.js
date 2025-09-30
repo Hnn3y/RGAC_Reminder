@@ -370,17 +370,21 @@ function overdueEmailTemplate(customer) {
 async function sendEmail(to, { subject, text }) {
   if (EMAIL_PROVIDER === "gmail") {
     const transporter = nodemailer.createTransport({
-      service: "gmail",
+      host: process.env.SMTP_HOST,   // e.g., "smtp.gmail.com" or your company SMTP
+      port: process.env.SMTP_PORT,   // usually 465 (secure) or 587 (TLS)
+      secure: process.env.SMTP_SECURE === 'true', // true if port 465
       auth: {
-        user: EMAIL_USER,
-        pass: EMAIL_PASS,
-      }
+        user: process.env.SMTP_USER,  // your company email address
+        pass: process.env.SMTP_PASS,  // app password or SMTP password
+      },
     });
+    
+    // when sending reminder:
     await transporter.sendMail({
-      from: EMAIL_USER,
-      to,
-      subject,
-      text
+      from: `"Company Name" <${process.env.SMTP_USER}>`,  // must match auth user
+      to: client.email,
+      subject: `Service Reminder: ${client.name}`,
+      text: `Hello ${client.name},\n\nThis is a reminder that your next service is due on ${client.nextReminder}.\n\n- Company`,
     });
   } else if (EMAIL_PROVIDER === "sendgrid") {
     sgMail.setApiKey(SENDGRID_API_KEY);
