@@ -19,7 +19,7 @@ if (!GOOGLE_SHEET_ID) throw new Error("Missing GOOGLE_SHEET_ID env variable");
 
 const SHEET_NAMES = {
   MASTER: "ALL AMC CLIENT",
-  REMINDERS: "Reminders",
+  REMINDERS: "REMINDER SHEET",
   STATUS_LOG: "Status Log",
 };
 
