@@ -48,7 +48,7 @@ export async function mainSync() {
   }
 
   // 3. Process customers
-  const processedCustomers = processCustomers(masterRows, masterHeader);
+  const processedCustomers = processCustomers(masterRows, ensuredHeader);
 
   // 4. Alphabetically sort
   processedCustomers.sort((a, b) => (a["Name"] || "").localeCompare(b["Name"] || ""));
@@ -131,34 +131,34 @@ async function updateSheetHeader(sheets, sheetName, header) {
 }
 
 function processCustomers(rows, header) {
-  // Convert to objects
-  const idx = Object.fromEntries(header.map((h, i) => [h, i]));
-  const customers = rows.map(row => {
-    const obj = {};
-    header.forEach((col, i) => { obj[col] = (row[i] || "").trim(); });
-    return obj;
-  });
-
-  // Ensure all required fields & logic
-  for (const customer of customers) {
-    // Recalculate Next Reminder Date if Last Service Date changed or missing
-    let lastService = parseDate(customer["Last Service Date"]);
-    if (lastService) {
-      const nextReminder = lastService.plus({ months: 3 });
-      customer["Next Reminder Date"] = nextReminder.toISODate();
-    } else {
-      customer["Next Reminder Date"] = "";
-    }
-
-    // Manual Contact if missing both email and phone
-    const hasEmail = Boolean(customer["Email"]);
-    const hasPhone = Boolean(customer["Phone"]);
-    customer["Manual Contact"] = (!hasEmail && !hasPhone) ? "MISSING CONTACT" : "";
-
-    // Status could be customized here if needed
-  }
-  return customers;
-}
+   const customers = rows.map(row => {
+     const obj = {};
+     header.forEach((col, i) => { obj[col] = (row[i] || "").trim(); });
+     
+     // Ensure all required fields exist
+     REQUIRED_COLUMNS.forEach(col => {
+       if (!(col in obj)) obj[col] = "";
+     });
+ 
+     // Calculate Next Reminder Date
+     let lastService = parseDate(obj["Last Visit"]);
+     if (lastService) {
+       const nextReminder = lastService.plus({ months: 3 });
+       obj["Next Visit"] = nextReminder.toISODate();
+     } else {
+       obj["Next Reminder Date"] = "";
+     }
+ 
+     // Manual Contact if no email/phone
+     const hasEmail = Boolean(obj["Email"]);
+     const hasPhone = Boolean(obj["Phone"]);
+     obj["Manual Contact"] = (!hasEmail && !hasPhone) ? "MISSING CONTACT" : "";
+ 
+     return obj;
+   });
+ 
+   return customers;
+ } 
 
 function parseDate(str) {
   if (!str) return null;
