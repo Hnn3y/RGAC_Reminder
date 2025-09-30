@@ -277,7 +277,7 @@ async function sendReminders(customers) {
       continue;
     }
     
-    const to = customer["Email"];
+    const to = customer["Email Add."];
     if (!to) {
       console.log(`⏭️  SKIP: ${name} - No email address`);
       continue;
