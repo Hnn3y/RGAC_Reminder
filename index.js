@@ -35,49 +35,53 @@ const REQUIRED_COLUMNS = [
 ];
 
 export async function mainSync() {
-   // 1. Authenticate Google Sheets
-   const sheets = await getSheetsClient();
- 
-   // 2. Fetch and ensure columns in Master
-   let { rows: masterRows, header: masterHeader } = await fetchSheetRows(sheets, SHEET_NAMES.MASTER);
-   const { header: ensuredHeader, changed: headerChanged } = ensureColumns(masterHeader, REQUIRED_COLUMNS);
- 
-   if (headerChanged) {
-     await updateSheetHeader(sheets, SHEET_NAMES.MASTER, ensuredHeader);
-     masterHeader = ensuredHeader;
-   }
- 
-   // 3. Process customers
-   const processedCustomers = processCustomers(masterRows, ensuredHeader);
- 
-   // 4. Alphabetically sort
-   processedCustomers.sort((a, b) => (a["Name"] || "").localeCompare(b["Name"] || ""));
- 
-   // 5. Write processed customers to Reminders and update Master (reminder fields only)
-   await writeProcessedData(sheets, processedCustomers, ensuredHeader, SHEET_NAMES.REMINDERS);
-   await writeProcessedData(sheets, processedCustomers, ensuredHeader, SHEET_NAMES.MASTER);
- 
-   // 6. Send due/overdue emails and log results
-   const emailResults = await sendReminders(processedCustomers);
- 
-   // 7. Log to Status Log
-   const logRow = [
-     DateTime.now().toISO({ suppressMilliseconds: true }),
-     processedCustomers.length,
-     emailResults.sent,
-     emailResults.failed,
-     emailResults.failures.join("; ")
-   ];
-   await appendSheetRow(sheets, SHEET_NAMES.STATUS_LOG, logRow);
- 
-   // 8. Return summary
-   return {
-     processed: processedCustomers.length,
-     remindersSent: emailResults.sent,
-     remindersFailed: emailResults.failed,
-     failures: emailResults.failures,
-   };
- }
+  // 1. Authenticate Google Sheets
+  const sheets = await getSheetsClient();
+
+  // 2. Fetch and ensure columns in Master
+  let { rows: masterRows, header: masterHeader } = await fetchSheetRows(sheets, SHEET_NAMES.MASTER);
+  const { header: ensuredHeader, changed: headerChanged } = ensureColumns(masterHeader, REQUIRED_COLUMNS);
+
+  if (headerChanged) {
+    await updateSheetHeader(sheets, SHEET_NAMES.MASTER, ensuredHeader);
+    masterHeader = ensuredHeader;
+  }
+
+  // 3. Process customers
+  const processedCustomers = processCustomers(masterRows, ensuredHeader);
+
+  // 4. Alphabetically sort for reminders sheet
+  const sortedCustomers = [...processedCustomers].sort((a, b) => 
+    (a["Name"] || "").localeCompare(b["Name"] || "")
+  );
+
+  // 5. Write sorted data to Reminders sheet
+  await writeProcessedData(sheets, sortedCustomers, ensuredHeader, SHEET_NAMES.REMINDERS);
+
+  // 6. Update only reminder fields in Master (preserve original order)
+  await updateReminderFieldsInMaster(sheets, processedCustomers, ensuredHeader, SHEET_NAMES.MASTER);
+
+  // 7. Send due/overdue emails and log results
+  const emailResults = await sendReminders(processedCustomers);
+
+  // 8. Log to Status Log
+  const logRow = [
+    DateTime.now().toISO({ suppressMilliseconds: true }),
+    processedCustomers.length,
+    emailResults.sent,
+    emailResults.failed,
+    emailResults.failures.join("; ")
+  ];
+  await appendSheetRow(sheets, SHEET_NAMES.STATUS_LOG, logRow);
+
+  // 9. Return summary
+  return {
+    processed: processedCustomers.length,
+    remindersSent: emailResults.sent,
+    remindersFailed: emailResults.failed,
+    failures: emailResults.failures,
+  };
+}
 
 // ==== GOOGLE SHEETS HELPERS ====
 async function getSheetsClient() {
@@ -127,100 +131,35 @@ async function updateSheetHeader(sheets, sheetName, header) {
 }
 
 function processCustomers(rows, header) {
-   const customers = rows.map(row => {
-     const obj = {};
-     header.forEach((col, i) => { obj[col] = (row[i] || "").trim(); });
- 
-     // Ensure all required fields exist
-     REQUIRED_COLUMNS.forEach(col => {
-       if (!(col in obj)) obj[col] = "";
-     });
- 
-     // Calculate Next Reminder Date (3 months after Last Service Date)
-     let lastService = parseDate(obj["Last Visit"]);
-     let nextReminder = "";
-     if (lastService) {
-       nextReminder = lastService.plus({ months: 3 }).toISODate();
-       obj["Next Reminder Date"] = nextReminder;
-     } else {
-       obj["Next Reminder Date"] = "";
-     }
- 
-     // Manual Contact if no email/phone
-     const hasEmail = Boolean(obj["Email"]);
-     const hasPhone = Boolean(obj["Phone"]);
-     obj["Manual Contact"] = (!hasEmail && !hasPhone) ? "MISSING CONTACT" : "";
- 
-     // Status can be updated elsewhere if needed
-     return obj;
-   });
-   return customers;
- }
- 
- async function sendReminders(customers) {
-   let sent = 0, failed = 0, failures = [];
-   const today = DateTime.now().toISODate();
-   for (const customer of customers) {
-     if (customer["Manual Contact"] === "MISSING CONTACT") continue;
-     const to = customer["Email"];
-     if (!to) continue; // skip no-email
- 
-     let nextReminder = customer["Next Reminder Date"];
-     let status = (customer["Status"] || "").toUpperCase();
-     let overdue = false;
- 
-     if (nextReminder) {
-       const next = DateTime.fromISO(nextReminder);
-       if (status === "NOT SERVICED" && next < DateTime.now().startOf("day")) overdue = true;
-     }
- 
-     let template;
-     if (overdue) {
-       template = overdueEmailTemplate(customer);
-     } else if (nextReminder === today && status === "NOT SERVICED") {
-       template = regularEmailTemplate(customer);
-     } else {
-       continue;
-     }
- 
-     try {
-       await sendEmail(to, template);
-       sent++;
-     } catch (e) {
-       failed++;
-       failures.push(`To:${to} ${e.message}`);
-     }
-   }
-   return { sent, failed, failures };
- }
- 
- function regularEmailTemplate(customer) {
-   return {
-     subject: `Service Reminder for ${customer["Name"]}`,
-     text: (
-       `Dear ${customer["Name"] || "Customer"},\n\n` +
-       `This is a friendly reminder that your vehicle (Plate Number: ${customer["Plate Number"]}) is due for service.\n` +
-       `Last serviced: ${customer["Last Service Date"]}\n` +
-       `Recommended next service: ${customer["Next Reminder Date"]}\n\n` +
-       `Please contact us to schedule your appointment.\n\n` +
-       `Best regards,\nService Team`
-     )
-   };
- }
- 
- function overdueEmailTemplate(customer) {
-   return {
-     subject: `Overdue Service Reminder for ${customer["Name"]}`,
-     text: (
-       `Dear ${customer["Name"] || "Customer"},\n\n` +
-       `Our records show that your vehicle (Plate Number: ${customer["Plate Number"]}) has missed its scheduled service.\n` +
-       `Last serviced: ${customer["Last Service Date"]}\n` +
-       `Recommended service was due: ${customer["Next Reminder Date"]}\n\n` +
-       `Please contact us as soon as possible to schedule your overdue service and ensure your vehicle remains in top condition.\n\n` +
-       `Best regards,\nService Team`
-     )
-   };
- }
+  const customers = rows.map(row => {
+    const obj = {};
+    header.forEach((col, i) => { obj[col] = (row[i] || "").trim(); });
+
+    // Ensure all required fields exist
+    REQUIRED_COLUMNS.forEach(col => {
+      if (!(col in obj)) obj[col] = "";
+    });
+
+    // Calculate Next Reminder Date (3 months after Last Visit)
+    let lastVisit = parseDate(obj["Last Visit"]);
+    let nextReminder = "";
+    if (lastVisit) {
+      nextReminder = lastVisit.plus({ months: 3 }).toISODate();
+      obj["Next Reminder Date"] = nextReminder;
+    } else {
+      obj["Next Reminder Date"] = "";
+    }
+
+    // Manual Contact if no email/phone
+    const hasEmail = Boolean(obj["Email"]);
+    const hasPhone = Boolean(obj["Phone"]);
+    obj["Manual Contact"] = (!hasEmail && !hasPhone) ? "MISSING CONTACT" : "";
+
+    // Status can be updated elsewhere if needed
+    return obj;
+  });
+  return customers;
+}
 
 function parseDate(str) {
   if (!str) return null;
@@ -247,29 +186,42 @@ async function writeProcessedData(sheets, customers, header, sheetName) {
 async function updateReminderFieldsInMaster(sheets, customers, header, sheetName) {
   // Only update Next Reminder Date & Manual Contact in Master
   const fieldsToUpdate = ["Next Reminder Date", "Manual Contact"];
+  
   // Fetch current data to get correct row positions
   const { rows, header: masterHeader } = await fetchSheetRows(sheets, sheetName);
   const idx = Object.fromEntries(masterHeader.map((h, i) => [h, i]));
 
-  // Map by Name for update
-  const byName = Object.fromEntries(customers.map(c => [c["Name"], c]));
+  // Map by Name for update (use combination of Name + Plate for uniqueness)
+  const byKey = Object.fromEntries(
+    customers.map(c => [`${c["Name"]}|${c["Plate Number"]}`, c])
+  );
+  
   const updatedRows = rows.map(row => {
-    const name = row[idx["Name"]];
-    const customer = byName[name];
+    const name = (row[idx["Name"]] || "").trim();
+    const plate = (row[idx["Plate Number"]] || "").trim();
+    const key = `${name}|${plate}`;
+    const customer = byKey[key];
+    
     if (!customer) return row;
+    
     const newRow = [...row];
     for (const field of fieldsToUpdate) {
-      if (idx[field] !== undefined) newRow[idx[field]] = customer[field] || "";
+      if (idx[field] !== undefined) {
+        newRow[idx[field]] = customer[field] || "";
+      }
     }
     return newRow;
   });
-  // Re-write (excluding header)
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: GOOGLE_SHEET_ID,
-    range: `${sheetName}!2:${updatedRows.length + 1}`,
-    valueInputOption: "RAW",
-    requestBody: { values: updatedRows },
-  });
+  
+  // Re-write data rows (excluding header)
+  if (updatedRows.length > 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: GOOGLE_SHEET_ID,
+      range: `${sheetName}!A2:${String.fromCharCode(65 + masterHeader.length - 1)}${updatedRows.length + 1}`,
+      valueInputOption: "RAW",
+      requestBody: { values: updatedRows },
+    });
+  }
 }
 
 async function appendSheetRow(sheets, sheetName, row) {
@@ -285,31 +237,73 @@ async function appendSheetRow(sheets, sheetName, row) {
 // ==== EMAIL NOTIFICATION ====
 async function sendReminders(customers) {
   let sent = 0, failed = 0, failures = [];
+  const today = DateTime.now().toISODate();
+  
   for (const customer of customers) {
+    // Skip customers with missing contact info
     if (customer["Manual Contact"] === "MISSING CONTACT") continue;
+    
     const to = customer["Email"];
     if (!to) continue; // skip no-email
+
+    let nextReminder = customer["Next Reminder Date"];
+    let status = (customer["Status"] || "").toUpperCase();
+    let overdue = false;
+
+    // Check if overdue
+    if (nextReminder) {
+      const next = DateTime.fromISO(nextReminder);
+      if (status === "NOT SERVICED" && next < DateTime.now().startOf("day")) {
+        overdue = true;
+      }
+    }
+
+    // Determine if we should send email
+    let template;
+    if (overdue) {
+      template = overdueEmailTemplate(customer);
+    } else if (nextReminder === today && status === "NOT SERVICED") {
+      template = regularEmailTemplate(customer);
+    } else {
+      continue; // Skip this customer
+    }
+
+    // Send email
     try {
-      await sendEmail(to, emailTemplate(customer));
+      await sendEmail(to, template);
       sent++;
     } catch (e) {
       failed++;
       failures.push(`To:${to} ${e.message}`);
     }
   }
+  
   return { sent, failed, failures };
 }
 
-function emailTemplate(customer) {
-  // Editable template
+function regularEmailTemplate(customer) {
   return {
     subject: `Service Reminder for ${customer["Name"]}`,
     text: (
       `Dear ${customer["Name"] || "Customer"},\n\n` +
       `This is a friendly reminder that your vehicle (Plate Number: ${customer["Plate Number"]}) is due for service.\n` +
-      `Last serviced: ${customer["Last Service Date"]}\n` +
+      `Last serviced: ${customer["Last Visit"]}\n` +
       `Recommended next service: ${customer["Next Reminder Date"]}\n\n` +
       `Please contact us to schedule your appointment.\n\n` +
+      `Best regards,\nService Team`
+    )
+  };
+}
+
+function overdueEmailTemplate(customer) {
+  return {
+    subject: `Overdue Service Reminder for ${customer["Name"]}`,
+    text: (
+      `Dear ${customer["Name"] || "Customer"},\n\n` +
+      `Our records show that your vehicle (Plate Number: ${customer["Plate Number"]}) has missed its scheduled service.\n` +
+      `Last serviced: ${customer["Last Visit"]}\n` +
+      `Recommended service was due: ${customer["Next Reminder Date"]}\n\n` +
+      `Please contact us as soon as possible to schedule your overdue service and ensure your vehicle remains in top condition.\n\n` +
       `Best regards,\nService Team`
     )
   };
