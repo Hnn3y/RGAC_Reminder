@@ -264,22 +264,42 @@ async function sendReminders(customers) {
   let sent = 0, failed = 0, failures = [];
   const today = DateTime.now().toISODate();
   
+  console.log(`\n=== EMAIL SENDING PROCESS ===`);
+  console.log(`Today's date: ${today}`);
+  console.log(`Total customers: ${customers.length}`);
+  
   for (const customer of customers) {
+    const name = customer["Name"] || "Unknown";
+    
     // Skip customers with missing contact info
-    if (customer["Manual Contact"] === "MISSING CONTACT") continue;
+    if (customer["Manual Contact"] === "MISSING CONTACT") {
+      console.log(`⏭️  SKIP: ${name} - Missing contact info`);
+      continue;
+    }
     
     const to = customer["Email"];
-    if (!to) continue; // skip no-email
+    if (!to) {
+      console.log(`⏭️  SKIP: ${name} - No email address`);
+      continue;
+    }
 
     let nextReminder = customer["Next Reminder Date"];
     let status = (customer["Status"] || "").toUpperCase();
+    
+    console.log(`\n📋 Checking: ${name}`);
+    console.log(`   Email: ${to}`);
+    console.log(`   Status: ${status}`);
+    console.log(`   Next Reminder: ${nextReminder}`);
+    console.log(`   Today: ${today}`);
+    
     let overdue = false;
 
     // Check if overdue
     if (nextReminder) {
       const next = DateTime.fromISO(nextReminder);
-      if (status === "NOT SERVICED" && next < DateTime.now().startOf("day")) {
+      if (next.isValid && status === "NOT SERVICED" && next < DateTime.now().startOf("day")) {
         overdue = true;
+        console.log(`   ⚠️  OVERDUE! (${nextReminder} < ${today})`);
       }
     }
 
@@ -287,9 +307,12 @@ async function sendReminders(customers) {
     let template;
     if (overdue) {
       template = overdueEmailTemplate(customer);
+      console.log(`   📧 Sending OVERDUE email...`);
     } else if (nextReminder === today && status === "NOT SERVICED") {
       template = regularEmailTemplate(customer);
+      console.log(`   📧 Sending DUE TODAY email...`);
     } else {
+      console.log(`   ⏭️  Not due yet or already serviced`);
       continue; // Skip this customer
     }
 
@@ -297,10 +320,20 @@ async function sendReminders(customers) {
     try {
       await sendEmail(to, template);
       sent++;
+      console.log(`   ✅ Email sent successfully!`);
     } catch (e) {
       failed++;
-      failures.push(`To:${to} ${e.message}`);
+      const errorMsg = `To:${to} ${e.message}`;
+      failures.push(errorMsg);
+      console.error(`   ❌ Failed to send: ${e.message}`);
     }
+  }
+  
+  console.log(`\n=== EMAIL SUMMARY ===`);
+  console.log(`✅ Sent: ${sent}`);
+  console.log(`❌ Failed: ${failed}`);
+  if (failures.length > 0) {
+    console.log(`Failures: ${failures.join("; ")}`);
   }
   
   return { sent, failed, failures };
