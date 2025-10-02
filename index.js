@@ -380,7 +380,7 @@ async function sendEmail(to, { subject, text }) {
     });
 
     await transporter.sendMail({
-      from: `"Company Name" <${EMAIL_USER}>`, // must match auth user
+      from: `"Royal Gem AutoCare Nigeria Limited" <${EMAIL_USER}>`, // must match auth user
       to,
       subject,
       text,
