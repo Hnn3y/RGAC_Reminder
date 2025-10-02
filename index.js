@@ -26,8 +26,8 @@ const SHEET_NAMES = {
 const REQUIRED_COLUMNS = [
  "Name",
  "Plate Number",
- "Email Add.", // ✅ Use your actual header
- "Phone Number", // ✅ Use your actual header
+ "Email Add.", 
+ "Phone Number", 
  "Last Visit",
  "Next Reminder Date",
  "Manual Contact",
@@ -299,7 +299,7 @@ async function sendReminders(customers) {
       const next = DateTime.fromISO(nextReminder);
       if (next.isValid && status === "NOT SERVICED" && next < DateTime.now().startOf("day")) {
         overdue = true;
-        console.log(`   ⚠️  OVERDUE! (${nextReminder} < ${today})`);
+        console.log(`  OVERDUE! (${nextReminder} < ${today})`);
       }
     }
 
@@ -370,17 +370,17 @@ function overdueEmailTemplate(customer) {
 async function sendEmail(to, { subject, text }) {
   if (EMAIL_PROVIDER === "smtp") {
     const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,          // e.g., "smtp.gmail.com"
+      host: process.env.SMTP_HOST,          
       port: Number(process.env.SMTP_PORT),  // 465 or 587
       secure: process.env.SMTP_SECURE === "true", 
       auth: {
-        user: EMAIL_USER,  // use EMAIL_USER from env
-        pass: EMAIL_PASS,  // use EMAIL_PASS from env
+        user: EMAIL_USER,  
+        pass: EMAIL_PASS,  
       },
     });
 
     await transporter.sendMail({
-      from: `"Royal Gem AutoCare Nigeria Limited" <${EMAIL_USER}>`, // must match auth user
+      from: `"Royal Gem AutoCare Nigeria Limited" <${EMAIL_USER}>`, 
       to,
       subject,
       text,
