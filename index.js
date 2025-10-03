@@ -25,7 +25,7 @@ const SHEET_NAMES = {
 
 const REQUIRED_COLUMNS = [
  "Name",
- "Plate Number",
+ "Veh. Reg. No.",
  "Email Add.", 
  "Phone Number", 
  "Last Visit",
@@ -213,12 +213,12 @@ async function updateReminderFieldsInMaster(sheets, customers, header, sheetName
 
   // Map by Name for update (use combination of Name + Plate for uniqueness)
   const byKey = Object.fromEntries(
-    customers.map(c => [`${c["Name"]}|${c["Plate Number"]}`, c])
+    customers.map(c => [`${c["Name"]}|${c["Veh. Reg. No."]}`, c])
   );
   
   const updatedRows = rows.map(row => {
     const name = (row[idx["Name"]] || "").trim();
-    const plate = (row[idx["Plate Number"]] || "").trim();
+    const plate = (row[idx["Veh. Reg. No."]] || "").trim();
     const key = `${name}|${plate}`;
     const customer = byKey[key];
     
@@ -344,7 +344,7 @@ function regularEmailTemplate(customer) {
     subject: `Service Reminder for ${customer["Name"]}`,
     text: (
       `Dear ${customer["Name"] || "Customer"},\n\n` +
-      `This is a friendly reminder that your vehicle (Plate Number: ${customer["Plate Number"]}) is due for service at Royal Gem AutoCare.\n` +
+      `This is a friendly reminder that your vehicle (Plate Number: ${customer["Veh. Reg. No."]}) is due for service at Royal Gem AutoCare.\n` +
       `Your Last serviced date was on: ${customer["Last Visit"]}\n` +
       `Recommended next service date: ${customer["Next Reminder Date"]}\n\n` +
       `Please contact us to schedule your appointment.\n\n` +
@@ -358,7 +358,7 @@ function overdueEmailTemplate(customer) {
     subject: `Overdue Service Reminder for ${customer["Name"]}`,
     text: (
       `Dear ${customer["Name"] || "Customer"},\n\n` +
-      `Our records show that your vehicle (Plate Number: ${customer["Plate Number"]}) has missed its scheduled service.\n` +
+      `Our records show that your vehicle (Plate Number: ${customer["Veh. Reg No."]}) has missed its scheduled service.\n` +
       `Last serviced: ${customer["Last Visit"]}\n` +
       `Recommended service was due: ${customer["Next Reminder Date"]}\n\n` +
       `Please contact us as soon as possible to schedule your overdue service and ensure your vehicle remains in top condition.\n\n` +
