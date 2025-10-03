@@ -358,7 +358,7 @@ function overdueEmailTemplate(customer) {
     subject: `Overdue Service Reminder for ${customer["Name"]}`,
     text: (
       `Dear ${customer["Name"] || "Customer"},\n\n` +
-      `Our records show that your vehicle (Plate Number: ${customer["Veh. Reg No."]}) has missed its scheduled service.\n` +
+      `Our records show that your vehicle (Plate Number: ${customer["Veh. Reg. No."]}) has missed its scheduled service.\n` +
       `Last serviced: ${customer["Last Visit"]}\n` +
       `Recommended service was due: ${customer["Next Reminder Date"]}\n\n` +
       `Please contact us as soon as possible to schedule your overdue service and ensure your vehicle remains in top condition.\n\n` +
