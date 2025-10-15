@@ -16,4 +16,7 @@ flowchart TD
    H --> K
    I --> K
    J --> K
+   K --> L[Append to Status Log]
+   L --> M[Return Summary]
+   M --> N([END])
 ```
