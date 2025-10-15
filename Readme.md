@@ -5,6 +5,7 @@ flowchart TD
    A([TRIGGER]) --> B[FETCH CREDS FROM ENVIRONMENT]
    B --> C[AUTHENTICATE GOOGLE SHEETS]
    B --> D[FETCH MASTER SHEET DATA]
+   C --> D
    D --> E[PROCESS CUSTOMER]
    E --> F[COMPUTE NEXT REMINDER]
    E --> G[Alphabetically Sort Data]
