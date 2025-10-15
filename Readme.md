@@ -7,5 +7,9 @@ flowchart TD
    C --> D[FETCH MASTER SHEET DATA]
    D --> E[PROCESS CUSTOMER]
    E --> F[COMPUTE NEXT REMINDER]
+   E --> G[Alphabetically Sort Data]
+   E --> H[Write to Reminder Sheet]
+   E --> I[Update Reminder Fields in Master]
+   E --> J[CHECK FOR DUE/OVERDUE REMINDERS]
 
 ```
