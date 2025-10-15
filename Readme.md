@@ -11,5 +11,9 @@ flowchart TD
    E --> H[Write to Reminder Sheet]
    E --> I[Update Reminder Fields in Master]
    E --> J[CHECK FOR DUE/OVERDUE REMINDERS]
-
+   F --> K[(Send Email via SMTP/SendGrid)]
+   G --> K
+   H --> K
+   I --> K
+   J --> K
 ```
