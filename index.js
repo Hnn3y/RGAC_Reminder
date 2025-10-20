@@ -32,6 +32,8 @@ const REQUIRED_COLUMNS = [
  "Next Reminder Date",
  "Manual Contact",
  "Status",
+ "Last Email Sent",        // NEW: Track when we last sent email
+ "Email Type",             // NEW: Track what type of email was sent
 ];
 
 export async function mainSync() {
@@ -58,11 +60,11 @@ export async function mainSync() {
   // 5. Write sorted data to Reminders sheet
   await writeProcessedData(sheets, sortedCustomers, ensuredHeader, SHEET_NAMES.REMINDERS);
 
-  // 6. Update only reminder fields in Master (preserve original order)
-  await updateReminderFieldsInMaster(sheets, processedCustomers, ensuredHeader, SHEET_NAMES.MASTER);
-
-  // 7. Send due/overdue emails and log results
+  // 6. Send reminders and get updated customers with email tracking
   const emailResults = await sendReminders(processedCustomers);
+
+  // 7. Update Master with reminder fields AND email tracking
+  await updateReminderFieldsInMaster(sheets, emailResults.updatedCustomers, ensuredHeader, SHEET_NAMES.MASTER);
 
   // 8. Log to Status Log
   const logRow = [
@@ -157,7 +159,6 @@ function processCustomers(rows, header) {
     const hasPhone = Boolean(obj["Phone Number"]);
     obj["Manual Contact"] = (!hasEmail && !hasPhone) ? "MISSING CONTACT" : "";
 
-    // Status can be updated elsewhere if needed
     return obj;
   });
   return customers;
@@ -171,10 +172,10 @@ function parseDate(str) {
     "yyyy-MM-dd",      // ISO: 2025-12-09
     "dd/MM/yyyy",      // 09/12/2025
     "MM/dd/yyyy",      // 12/09/2025
-    "dd-MM-yyyy",      // 09-12-2025 (YOUR FORMAT!)
+    "dd-MM-yyyy",      // 09-12-2025
     "MM-dd-yyyy",      // 12-09-2025
-    "d/M/yyyy",        // 9/12/2025 (single digit)
-    "d-M-yyyy",        // 9-12-2025 (single digit)
+    "d/M/yyyy",        // 9/12/2025
+    "d-M-yyyy",        // 9-12-2025
   ];
   
   // First try ISO parsing
@@ -191,7 +192,6 @@ function parseDate(str) {
 }
 
 async function writeProcessedData(sheets, customers, header, sheetName) {
-  // Overwrite all rows (including header)
   const values = [header].concat(
     customers.map(c => header.map(h => c[h] || ""))
   );
@@ -204,14 +204,12 @@ async function writeProcessedData(sheets, customers, header, sheetName) {
 }
 
 async function updateReminderFieldsInMaster(sheets, customers, header, sheetName) {
-  // Only update Next Reminder Date & Manual Contact in Master
-  const fieldsToUpdate = ["Next Reminder Date", "Manual Contact"];
+  // Update reminder fields AND email tracking
+  const fieldsToUpdate = ["Next Reminder Date", "Manual Contact", "Last Email Sent", "Email Type"];
   
-  // Fetch current data to get correct row positions
   const { rows, header: masterHeader } = await fetchSheetRows(sheets, sheetName);
   const idx = Object.fromEntries(masterHeader.map((h, i) => [h, i]));
 
-  // Map by Name for update (use combination of Name + Plate for uniqueness)
   const byKey = Object.fromEntries(
     customers.map(c => [`${c["Name"]}|${c["Veh. Reg. No."]}`, c])
   );
@@ -224,7 +222,6 @@ async function updateReminderFieldsInMaster(sheets, customers, header, sheetName
     
     if (!customer) return row;
     
-    // Ensure row has enough cells
     const newRow = [...row];
     while (newRow.length < masterHeader.length) {
       newRow.push("");
@@ -238,7 +235,6 @@ async function updateReminderFieldsInMaster(sheets, customers, header, sheetName
     return newRow;
   });
   
-  // Re-write data rows (excluding header)
   if (updatedRows.length > 0) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: GOOGLE_SHEET_ID,
@@ -259,13 +255,14 @@ async function appendSheetRow(sheets, sheetName, row) {
   });
 }
 
-// ==== EMAIL NOTIFICATION (FIXED VERSION) ====
+// ==== EMAIL NOTIFICATION (IMPROVED VERSION) ====
 async function sendReminders(customers) {
   let sent = 0, failed = 0, failures = [];
-  const today = DateTime.now().startOf("day"); // Use DateTime object for comparison
+  const today = DateTime.now().startOf("day");
+  const todayStr = today.toISODate();
   
   console.log(`\n=== EMAIL SENDING PROCESS ===`);
-  console.log(`Today's date: ${today.toISODate()}`);
+  console.log(`Today's date: ${todayStr}`);
   console.log(`Total customers: ${customers.length}`);
   
   for (const customer of customers) {
@@ -283,21 +280,16 @@ async function sendReminders(customers) {
       continue;
     }
 
-    let nextReminderStr = customer["Next Reminder Date"];
-    let status = (customer["Status"] || "").trim().toUpperCase();
+    const nextReminderStr = customer["Next Reminder Date"];
+    const lastEmailSent = customer["Last Email Sent"] || "";
+    const lastEmailType = customer["Email Type"] || "";
     
     console.log(`\n📋 Checking: ${name}`);
     console.log(`   Email: ${to}`);
-    console.log(`   Status: "${status}" (Original: "${customer["Status"]}")`);
     console.log(`   Next Reminder: ${nextReminderStr}`);
-    console.log(`   Today: ${today.toISODate()}`);
+    console.log(`   Last Email: ${lastEmailSent} (${lastEmailType})`);
+    console.log(`   Today: ${todayStr}`);
     
-    // Skip if already serviced
-    if (status === "SERVICED" || status === "COMPLETED" || status === "DONE") {
-      console.log(`   ⏭️  Already serviced - skipping`);
-      continue;
-    }
-
     // Parse reminder date
     if (!nextReminderStr) {
       console.log(`   ⏭️  No reminder date set - skipping`);
@@ -306,43 +298,56 @@ async function sendReminders(customers) {
 
     const nextReminder = DateTime.fromISO(nextReminderStr);
     if (!nextReminder.isValid) {
-      console.log(`   ⚠️  Invalid reminder date format: ${nextReminderStr}`);
+      console.log(`   ⚠️  Invalid reminder date: ${nextReminderStr}`);
       continue;
     }
 
     const reminderDate = nextReminder.startOf("day");
+    const daysUntilDue = reminderDate.diff(today, "days").days;
     
-    // Check if due or overdue
-    let shouldSend = false;
-    let template;
+    console.log(`   Days until due: ${Math.round(daysUntilDue)}`);
     
-    if (reminderDate < today) {
+    // Determine email type based on timing
+    let emailType = null;
+    let template = null;
+    
+    if (daysUntilDue < 0) {
       // OVERDUE
-      shouldSend = true;
+      emailType = "OVERDUE";
       template = overdueEmailTemplate(customer);
-      console.log(`   🔴 OVERDUE! (${nextReminderStr} < ${today.toISODate()})`);
-    } else if (reminderDate.equals(today)) {
+      console.log(`   🔴 OVERDUE by ${Math.abs(Math.round(daysUntilDue))} days`);
+    } else if (daysUntilDue === 0) {
       // DUE TODAY
-      shouldSend = true;
-      template = regularEmailTemplate(customer);
-      console.log(`   🟡 DUE TODAY! (${nextReminderStr} == ${today.toISODate()})`);
+      emailType = "DUE_TODAY";
+      template = dueTodayEmailTemplate(customer);
+      console.log(`   🟡 DUE TODAY`);
+    } else if (daysUntilDue <= 7 && daysUntilDue > 0) {
+      // 7-DAY ADVANCE WARNING
+      emailType = "ADVANCE_7DAY";
+      template = advanceReminderEmailTemplate(customer, Math.round(daysUntilDue));
+      console.log(`   🟢 Due in ${Math.round(daysUntilDue)} days - sending advance reminder`);
     } else {
-      console.log(`   🟢 Not due yet (${nextReminderStr} > ${today.toISODate()})`);
-    }
-
-    if (!shouldSend) {
+      console.log(`   ⏭️  Too early to send reminder (due in ${Math.round(daysUntilDue)} days)`);
       continue;
     }
-
+    
+    // Check if we already sent this type of email today
+    if (lastEmailSent === todayStr && lastEmailType === emailType) {
+      console.log(`   ⏭️  Already sent ${emailType} email today - skipping`);
+      continue;
+    }
+    
     // Send email
-    console.log(`   📧 Sending email...`);
+    console.log(`   📧 Sending ${emailType} email...`);
     try {
       await sendEmail(to, template);
       sent++;
-      console.log(`   ✅ Email sent successfully!`);
       
-      // Optional: Update status to indicate email was sent
-      // customer["Status"] = "EMAIL SENT";
+      // Update tracking fields
+      customer["Last Email Sent"] = todayStr;
+      customer["Email Type"] = emailType;
+      
+      console.log(`   ✅ Email sent successfully!`);
     } catch (e) {
       failed++;
       const errorMsg = `${name} (${to}): ${e.message}`;
@@ -358,32 +363,56 @@ async function sendReminders(customers) {
     console.log(`Failures:\n  - ${failures.join("\n  - ")}`);
   }
   
-  return { sent, failed, failures };
+  return { sent, failed, failures, updatedCustomers: customers };
 }
-function regularEmailTemplate(customer) {
+
+function advanceReminderEmailTemplate(customer, daysUntil) {
   return {
-    subject: `Service Reminder for ${customer["Name"]}`,
+    subject: `Upcoming Service Reminder - ${customer["Name"]}`,
     text: (
       `Dear ${customer["Name"] || "Customer"},\n\n` +
-      `This is a friendly reminder that your vehicle (Plate Number: ${customer["Veh. Reg. No."]}) is due for service at Royal Gem AutoCare.\n` +
-      `Your Last serviced date was on: ${customer["Last Visit"]}\n` +
-      `Recommended next service date: ${customer["Next Reminder Date"]}\n\n` +
-      `Please contact us to schedule your appointment.\n\n` +
-      `Best regards,\nRoyal Gem Auto Care Service Team`
+      `This is a friendly advance reminder that your vehicle (${customer["Veh. Reg. No."]}) is due for service in ${daysUntil} day(s).\n\n` +
+      `Service Details:\n` +
+      `- Last Service: ${customer["Last Visit"]}\n` +
+      `- Next Service Due: ${customer["Next Reminder Date"]}\n\n` +
+      `We recommend booking your appointment early to ensure availability.\n\n` +
+      `Contact us at Royal Gem AutoCare to schedule your service.\n\n` +
+      `Best regards,\n` +
+      `Royal Gem Auto Care Service Team`
+    )
+  };
+}
+
+function dueTodayEmailTemplate(customer) {
+  return {
+    subject: `Service Due Today - ${customer["Name"]}`,
+    text: (
+      `Dear ${customer["Name"] || "Customer"},\n\n` +
+      `Your vehicle (${customer["Veh. Reg. No."]}) is due for service TODAY.\n\n` +
+      `Service Details:\n` +
+      `- Last Service: ${customer["Last Visit"]}\n` +
+      `- Service Due: ${customer["Next Reminder Date"]}\n\n` +
+      `Please contact us to schedule your appointment as soon as possible.\n\n` +
+      `Best regards,\n` +
+      `Royal Gem Auto Care Service Team`
     )
   };
 }
 
 function overdueEmailTemplate(customer) {
   return {
-    subject: `Overdue Service Reminder for ${customer["Name"]}`,
+    subject: `⚠️ Overdue Service Notice - ${customer["Name"]}`,
     text: (
       `Dear ${customer["Name"] || "Customer"},\n\n` +
-      `Our records show that your vehicle (Plate Number: ${customer["Veh. Reg. No."]}) has missed its scheduled service.\n` +
-      `Last serviced: ${customer["Last Visit"]}\n` +
-      `Recommended service was due: ${customer["Next Reminder Date"]}\n\n` +
-      `Please contact us as soon as possible to schedule your overdue service and ensure your vehicle remains in top condition.\n\n` +
-      `Best regards,\nService Team`
+      `URGENT: Our records show your vehicle (${customer["Veh. Reg. No."]}) has missed its scheduled service.\n\n` +
+      `Service Details:\n` +
+      `- Last Service: ${customer["Last Visit"]}\n` +
+      `- Service Was Due: ${customer["Next Reminder Date"]}\n\n` +
+      `Regular maintenance is essential for your vehicle's safety and performance. ` +
+      `Please contact us IMMEDIATELY to schedule your overdue service.\n\n` +
+      `Don't risk your vehicle's condition - book your appointment today!\n\n` +
+      `Best regards,\n` +
+      `Royal Gem Auto Care Service Team`
     )
   };
 }
@@ -392,7 +421,7 @@ async function sendEmail(to, { subject, text }) {
   if (EMAIL_PROVIDER === "smtp") {
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,          
-      port: Number(process.env.SMTP_PORT),  // 465 or 587
+      port: Number(process.env.SMTP_PORT),
       secure: process.env.SMTP_SECURE === "true", 
       auth: {
         user: EMAIL_USER,  
@@ -411,7 +440,7 @@ async function sendEmail(to, { subject, text }) {
     sgMail.setApiKey(SENDGRID_API_KEY);
     await sgMail.send({
       to,
-      from: EMAIL_USER, // must be a verified sender in SendGrid
+      from: EMAIL_USER,
       subject,
       text,
     });
