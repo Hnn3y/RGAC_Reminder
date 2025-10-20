@@ -146,7 +146,8 @@ function processCustomers(rows, header) {
     let lastVisit = parseDate(obj["Last Visit"]);
     let nextReminder = "";
     if (lastVisit) {
-      nextReminder = lastVisit.plus({ months: 3 }).toISODate();
+      // Format as dd-MM-yyyy
+      nextReminder = lastVisit.plus({ months: 3 }).toFormat("dd-MM-yyyy");
       obj["Next Reminder Date"] = nextReminder;
       console.log(`Customer: ${obj["Name"]}, Last Visit: ${obj["Last Visit"]}, Next Reminder: ${nextReminder}`);
     } else {
@@ -296,8 +297,9 @@ async function sendReminders(customers) {
       continue;
     }
 
-    const nextReminder = DateTime.fromISO(nextReminderStr);
-    if (!nextReminder.isValid) {
+    // Parse the reminder date (now in dd-MM-yyyy format)
+    const nextReminder = parseDate(nextReminderStr);
+    if (!nextReminder || !nextReminder.isValid) {
       console.log(`   ⚠️  Invalid reminder date: ${nextReminderStr}`);
       continue;
     }
