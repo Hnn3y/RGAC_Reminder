@@ -259,13 +259,13 @@ async function appendSheetRow(sheets, sheetName, row) {
   });
 }
 
-// ==== EMAIL NOTIFICATION ====
+// ==== EMAIL NOTIFICATION (FIXED VERSION) ====
 async function sendReminders(customers) {
   let sent = 0, failed = 0, failures = [];
-  const today = DateTime.now().toISODate();
+  const today = DateTime.now().startOf("day"); // Use DateTime object for comparison
   
   console.log(`\n=== EMAIL SENDING PROCESS ===`);
-  console.log(`Today's date: ${today}`);
+  console.log(`Today's date: ${today.toISODate()}`);
   console.log(`Total customers: ${customers.length}`);
   
   for (const customer of customers) {
@@ -283,47 +283,69 @@ async function sendReminders(customers) {
       continue;
     }
 
-    let nextReminder = customer["Next Reminder Date"];
-    let status = (customer["Status"] || "").toUpperCase();
+    let nextReminderStr = customer["Next Reminder Date"];
+    let status = (customer["Status"] || "").trim().toUpperCase();
     
     console.log(`\n📋 Checking: ${name}`);
     console.log(`   Email: ${to}`);
-    console.log(`   Status: ${status}`);
-    console.log(`   Next Reminder: ${nextReminder}`);
-    console.log(`   Today: ${today}`);
+    console.log(`   Status: "${status}" (Original: "${customer["Status"]}")`);
+    console.log(`   Next Reminder: ${nextReminderStr}`);
+    console.log(`   Today: ${today.toISODate()}`);
     
-    let overdue = false;
-
-    // Check if overdue
-    if (nextReminder) {
-      const next = DateTime.fromISO(nextReminder);
-      if (next.isValid && status === "NOT SERVICED" && next < DateTime.now().startOf("day")) {
-        overdue = true;
-        console.log(`  OVERDUE! (${nextReminder} < ${today})`);
-      }
+    // Skip if already serviced
+    if (status === "SERVICED" || status === "COMPLETED" || status === "DONE") {
+      console.log(`   ⏭️  Already serviced - skipping`);
+      continue;
     }
 
-    // Determine if we should send email
+    // Parse reminder date
+    if (!nextReminderStr) {
+      console.log(`   ⏭️  No reminder date set - skipping`);
+      continue;
+    }
+
+    const nextReminder = DateTime.fromISO(nextReminderStr);
+    if (!nextReminder.isValid) {
+      console.log(`   ⚠️  Invalid reminder date format: ${nextReminderStr}`);
+      continue;
+    }
+
+    const reminderDate = nextReminder.startOf("day");
+    
+    // Check if due or overdue
+    let shouldSend = false;
     let template;
-    if (overdue) {
+    
+    if (reminderDate < today) {
+      // OVERDUE
+      shouldSend = true;
       template = overdueEmailTemplate(customer);
-      console.log(`   📧 Sending OVERDUE email...`);
-    } else if (nextReminder === today && status === "NOT SERVICED") {
+      console.log(`   🔴 OVERDUE! (${nextReminderStr} < ${today.toISODate()})`);
+    } else if (reminderDate.equals(today)) {
+      // DUE TODAY
+      shouldSend = true;
       template = regularEmailTemplate(customer);
-      console.log(`   📧 Sending DUE TODAY email...`);
+      console.log(`   🟡 DUE TODAY! (${nextReminderStr} == ${today.toISODate()})`);
     } else {
-      console.log(`   ⏭️  Not due yet or already serviced`);
-      continue; // Skip this customer
+      console.log(`   🟢 Not due yet (${nextReminderStr} > ${today.toISODate()})`);
+    }
+
+    if (!shouldSend) {
+      continue;
     }
 
     // Send email
+    console.log(`   📧 Sending email...`);
     try {
       await sendEmail(to, template);
       sent++;
       console.log(`   ✅ Email sent successfully!`);
+      
+      // Optional: Update status to indicate email was sent
+      // customer["Status"] = "EMAIL SENT";
     } catch (e) {
       failed++;
-      const errorMsg = `To:${to} ${e.message}`;
+      const errorMsg = `${name} (${to}): ${e.message}`;
       failures.push(errorMsg);
       console.error(`   ❌ Failed to send: ${e.message}`);
     }
@@ -333,12 +355,11 @@ async function sendReminders(customers) {
   console.log(`✅ Sent: ${sent}`);
   console.log(`❌ Failed: ${failed}`);
   if (failures.length > 0) {
-    console.log(`Failures: ${failures.join("; ")}`);
+    console.log(`Failures:\n  - ${failures.join("\n  - ")}`);
   }
   
   return { sent, failed, failures };
 }
-
 function regularEmailTemplate(customer) {
   return {
     subject: `Service Reminder for ${customer["Name"]}`,
