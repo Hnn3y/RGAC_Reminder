@@ -20,4 +20,7 @@ flowchart TD
    K --> L[Append to Status Log]
    L --> M[Return Summary]
    M --> N([END])
+
+   style A fill:#90EE90
+   style L fill:#FFA500
 ```
