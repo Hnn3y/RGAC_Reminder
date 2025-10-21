@@ -1,6 +1,7 @@
 # Royal Gem Auto Care Nigeria Limited (RGAC)
 
 ```mermaid
+flowchart TD
  A([TRIGGER: Script Runs]) --> B[Fetch Credentials from Environment]
     B --> C[Authenticate Google Sheets API]
     C --> D[Fetch Master Sheet Data]
