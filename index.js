@@ -32,8 +32,9 @@ const REQUIRED_COLUMNS = [
  "Next Reminder Date",
  "Manual Contact",
  "Status",
- "Last Email Sent",        // NEW: Track when we last sent email
- "Email Type",             // NEW: Track what type of email was sent
+ "Last Email Sent",        // Track when we last sent email
+ "Email Type",             // Track what type of email was sent
+ "Subscription",           // NEW: Track if customer is subscribed to reminders
 ];
 
 export async function mainSync() {
@@ -205,8 +206,8 @@ async function writeProcessedData(sheets, customers, header, sheetName) {
 }
 
 async function updateReminderFieldsInMaster(sheets, customers, header, sheetName) {
-  // Update reminder fields AND email tracking
-  const fieldsToUpdate = ["Next Reminder Date", "Manual Contact", "Last Email Sent", "Email Type"];
+  // Update reminder fields AND email tracking (including Subscription)
+  const fieldsToUpdate = ["Next Reminder Date", "Manual Contact", "Last Email Sent", "Email Type", "Subscription"];
   
   const { rows, header: masterHeader } = await fetchSheetRows(sheets, sheetName);
   const idx = Object.fromEntries(masterHeader.map((h, i) => [h, i]));
@@ -269,15 +270,32 @@ async function sendReminders(customers) {
   for (const customer of customers) {
     const name = customer["Name"] || "Unknown";
     
+    // Check subscription status FIRST
+    const subscription = (customer["Subscription"] || "").trim().toUpperCase();
+    
+    console.log(`\n📋 Checking: ${name}`);
+    console.log(`   Subscription Status: ${subscription}`);
+    
+    // Skip if not subscribed
+    if (subscription === "NOT SUBSCRIBED" || subscription === "UNSUBSCRIBED") {
+      console.log(`   🚫 NOT SUBSCRIBED - Skipping email`);
+      continue;
+    }
+    
+    // If subscription field is empty or anything other than "NOT SUBSCRIBED", treat as subscribed
+    if (subscription !== "SUBSCRIBED" && subscription !== "") {
+      console.log(`   ⚠️  Unknown subscription status: "${subscription}" - Treating as SUBSCRIBED`);
+    }
+    
     // Skip customers with missing contact info
     if (customer["Manual Contact"] === "MISSING CONTACT") {
-      console.log(`⏭️  SKIP: ${name} - Missing contact info`);
+      console.log(`   ⏭️  SKIP: Missing contact info`);
       continue;
     }
     
     const to = customer["Email Add."];
     if (!to) {
-      console.log(`⏭️  SKIP: ${name} - No email address`);
+      console.log(`   ⏭️  SKIP: No email address`);
       continue;
     }
 
@@ -285,7 +303,6 @@ async function sendReminders(customers) {
     const lastEmailSent = customer["Last Email Sent"] || "";
     const lastEmailType = customer["Email Type"] || "";
     
-    console.log(`\n📋 Checking: ${name}`);
     console.log(`   Email: ${to}`);
     console.log(`   Next Reminder: ${nextReminderStr}`);
     console.log(`   Last Email: ${lastEmailSent} (${lastEmailType})`);
