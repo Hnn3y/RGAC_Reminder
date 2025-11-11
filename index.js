@@ -38,8 +38,14 @@ const REQUIRED_COLUMNS = [
 ];
 
 export async function mainSync() {
+
+  console.log('\n🎯 mainSync() STARTED');
+  console.log('Current Time:', new Date().toISOString());
+
   // 1. Authenticate Google Sheets
+  console.log('\n📝 Step 1: Authenticating...');
   const sheets = await getSheetsClient();
+  console.log('✅ Authenticated');
 
   // 2. Fetch and ensure columns in Master
   let { rows: masterRows, header: masterHeader } = await fetchSheetRows(sheets, SHEET_NAMES.MASTER);
