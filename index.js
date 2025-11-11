@@ -32,64 +32,105 @@ const REQUIRED_COLUMNS = [
  "Next Reminder Date",
  "Manual Contact",
  "Status",
- "Last Email Sent",        // Track when we last sent email
- "Email Type",             // Track what type of email was sent
- "Subscription",           // NEW: Track if customer is subscribed to reminders
+ "Last Email Sent",
+ "Email Type",
+ "Subscription",
 ];
 
 export async function mainSync() {
-
-  console.log('\n🎯 mainSync() STARTED');
+  console.log('\n' + '='.repeat(80));
+  console.log('🎯 mainSync() STARTED');
   console.log('Current Time:', new Date().toISOString());
+  console.log('Current Date (ISO):', DateTime.now().toISODate());
+  console.log('Current Date (dd-MM-yyyy):', DateTime.now().toFormat('dd-MM-yyyy'));
+  console.log('Timezone:', Intl.DateTimeFormat().resolvedOptions().timeZone);
+  console.log('='.repeat(80) + '\n');
+  
+  try {
+    // 1. Authenticate Google Sheets
+    console.log('📝 STEP 1: Authenticating Google Sheets...');
+    const sheets = await getSheetsClient();
+    console.log('✅ Authentication successful\n');
 
-  // 1. Authenticate Google Sheets
-  console.log('\n📝 Step 1: Authenticating...');
-  const sheets = await getSheetsClient();
-  console.log('✅ Authenticated');
+    // 2. Fetch and ensure columns in Master
+    console.log('📝 STEP 2: Fetching Master Sheet Data...');
+    let { rows: masterRows, header: masterHeader } = await fetchSheetRows(sheets, SHEET_NAMES.MASTER);
+    console.log(`✅ Fetched ${masterRows.length} rows from Master Sheet`);
+    console.log('Current headers:', masterHeader.join(', '));
+    
+    const { header: ensuredHeader, changed: headerChanged } = ensureColumns(masterHeader, REQUIRED_COLUMNS);
 
-  // 2. Fetch and ensure columns in Master
-  let { rows: masterRows, header: masterHeader } = await fetchSheetRows(sheets, SHEET_NAMES.MASTER);
-  const { header: ensuredHeader, changed: headerChanged } = ensureColumns(masterHeader, REQUIRED_COLUMNS);
+    if (headerChanged) {
+      console.log('⚠️  Adding missing columns to Master Sheet...');
+      console.log('Missing columns:', REQUIRED_COLUMNS.filter(col => !masterHeader.includes(col)).join(', '));
+      await updateSheetHeader(sheets, SHEET_NAMES.MASTER, ensuredHeader);
+      masterHeader = ensuredHeader;
+      console.log('✅ Headers updated\n');
+    } else {
+      console.log('✅ All required columns present\n');
+    }
 
-  if (headerChanged) {
-    await updateSheetHeader(sheets, SHEET_NAMES.MASTER, ensuredHeader);
-    masterHeader = ensuredHeader;
+    // 3. Process customers
+    console.log('📝 STEP 3: Processing customers...');
+    const processedCustomers = processCustomers(masterRows, ensuredHeader);
+    console.log(`✅ Processed ${processedCustomers.length} customers\n`);
+
+    // 4. Alphabetically sort for reminders sheet
+    console.log('📝 STEP 4: Sorting customers alphabetically...');
+    const sortedCustomers = [...processedCustomers].sort((a, b) => 
+      (a["Name"] || "").localeCompare(b["Name"] || "")
+    );
+    console.log('✅ Customers sorted\n');
+
+    // 5. Write sorted data to Reminders sheet
+    console.log('📝 STEP 5: Writing to Reminder Sheet...');
+    await writeProcessedData(sheets, sortedCustomers, ensuredHeader, SHEET_NAMES.REMINDERS);
+    console.log('✅ Reminder Sheet updated\n');
+
+    // 6. Send reminders and get updated customers with email tracking
+    console.log('📝 STEP 6: Sending email reminders...');
+    const emailResults = await sendReminders(processedCustomers);
+    console.log(`✅ Email process complete: ${emailResults.sent} sent, ${emailResults.failed} failed\n`);
+
+    // 7. Update Master with reminder fields AND email tracking
+    console.log('📝 STEP 7: Updating Master Sheet with email tracking...');
+    await updateReminderFieldsInMaster(sheets, emailResults.updatedCustomers, ensuredHeader, SHEET_NAMES.MASTER);
+    console.log('✅ Master Sheet updated\n');
+
+    // 8. Log to Status Log
+    console.log('📝 STEP 8: Writing to Status Log...');
+    const logRow = [
+      DateTime.now().toISO({ suppressMilliseconds: true }),
+      processedCustomers.length,
+      emailResults.sent,
+      emailResults.failed,
+      emailResults.failures.join("; ")
+    ];
+    await appendSheetRow(sheets, SHEET_NAMES.STATUS_LOG, logRow);
+    console.log('✅ Status Log updated\n');
+
+    // 9. Return summary
+    console.log('='.repeat(80));
+    console.log('✅ mainSync() COMPLETED SUCCESSFULLY');
+    const summary = {
+      processed: processedCustomers.length,
+      remindersSent: emailResults.sent,
+      remindersFailed: emailResults.failed,
+      failures: emailResults.failures,
+    };
+    console.log('FINAL SUMMARY:', JSON.stringify(summary, null, 2));
+    console.log('='.repeat(80) + '\n');
+    
+    return summary;
+    
+  } catch (error) {
+    console.error('\n' + '='.repeat(80));
+    console.error('❌ ERROR IN mainSync():');
+    console.error('Message:', error.message);
+    console.error('Stack trace:', error.stack);
+    console.error('='.repeat(80) + '\n');
+    throw error;
   }
-
-  // 3. Process customers
-  const processedCustomers = processCustomers(masterRows, ensuredHeader);
-
-  // 4. Alphabetically sort for reminders sheet
-  const sortedCustomers = [...processedCustomers].sort((a, b) => 
-    (a["Name"] || "").localeCompare(b["Name"] || "")
-  );
-
-  // 5. Write sorted data to Reminders sheet
-  await writeProcessedData(sheets, sortedCustomers, ensuredHeader, SHEET_NAMES.REMINDERS);
-
-  // 6. Send reminders and get updated customers with email tracking
-  const emailResults = await sendReminders(processedCustomers);
-
-  // 7. Update Master with reminder fields AND email tracking
-  await updateReminderFieldsInMaster(sheets, emailResults.updatedCustomers, ensuredHeader, SHEET_NAMES.MASTER);
-
-  // 8. Log to Status Log
-  const logRow = [
-    DateTime.now().toISO({ suppressMilliseconds: true }),
-    processedCustomers.length,
-    emailResults.sent,
-    emailResults.failed,
-    emailResults.failures.join("; ")
-  ];
-  await appendSheetRow(sheets, SHEET_NAMES.STATUS_LOG, logRow);
-
-  // 9. Return summary
-  return {
-    processed: processedCustomers.length,
-    remindersSent: emailResults.sent,
-    remindersFailed: emailResults.failed,
-    failures: emailResults.failures,
-  };
 }
 
 // ==== GOOGLE SHEETS HELPERS ====
@@ -140,7 +181,8 @@ async function updateSheetHeader(sheets, sheetName, header) {
 }
 
 function processCustomers(rows, header) {
-  const customers = rows.map(row => {
+  console.log('\n--- PROCESSING CUSTOMERS ---');
+  const customers = rows.map((row, index) => {
     const obj = {};
     header.forEach((col, i) => { obj[col] = (row[i] || "").trim(); });
 
@@ -153,13 +195,12 @@ function processCustomers(rows, header) {
     let lastVisit = parseDate(obj["Last Visit"]);
     let nextReminder = "";
     if (lastVisit) {
-      // Format as dd-MM-yyyy
       nextReminder = lastVisit.plus({ months: 3 }).toFormat("dd-MM-yyyy");
       obj["Next Reminder Date"] = nextReminder;
-      console.log(`Customer: ${obj["Name"]}, Last Visit: ${obj["Last Visit"]}, Next Reminder: ${nextReminder}`);
+      console.log(`✅ Customer ${index + 1}: ${obj["Name"]}, Last Visit: ${obj["Last Visit"]}, Next Reminder: ${nextReminder}`);
     } else {
       obj["Next Reminder Date"] = "";
-      console.log(`Customer: ${obj["Name"]}, No valid Last Visit date found: "${obj["Last Visit"]}"`);
+      console.log(`⚠️  Customer ${index + 1}: ${obj["Name"]}, No valid Last Visit date found: "${obj["Last Visit"]}"`);
     }
 
     // Manual Contact if no email/phone
@@ -169,28 +210,26 @@ function processCustomers(rows, header) {
 
     return obj;
   });
+  console.log('--- END PROCESSING CUSTOMERS ---\n');
   return customers;
 }
 
 function parseDate(str) {
   if (!str) return null;
   
-  // Try multiple date formats
   const formats = [
-    "yyyy-MM-dd",      // ISO: 2025-12-09
-    "dd/MM/yyyy",      // 09/12/2025
-    "MM/dd/yyyy",      // 12/09/2025
-    "dd-MM-yyyy",      // 09-12-2025
-    "MM-dd-yyyy",      // 12-09-2025
-    "d/M/yyyy",        // 9/12/2025
-    "d-M-yyyy",        // 9-12-2025
+    "yyyy-MM-dd",
+    "dd/MM/yyyy",
+    "MM/dd/yyyy",
+    "dd-MM-yyyy",
+    "MM-dd-yyyy",
+    "d/M/yyyy",
+    "d-M-yyyy",
   ];
   
-  // First try ISO parsing
   let dt = DateTime.fromISO(str);
   if (dt.isValid) return dt;
   
-  // Try each format
   for (const format of formats) {
     dt = DateTime.fromFormat(str, format);
     if (dt.isValid) return dt;
@@ -212,7 +251,6 @@ async function writeProcessedData(sheets, customers, header, sheetName) {
 }
 
 async function updateReminderFieldsInMaster(sheets, customers, header, sheetName) {
-  // Update reminder fields AND email tracking (including Subscription)
   const fieldsToUpdate = ["Next Reminder Date", "Manual Contact", "Last Email Sent", "Email Type", "Subscription"];
   
   const { rows, header: masterHeader } = await fetchSheetRows(sheets, sheetName);
@@ -268,40 +306,55 @@ async function sendReminders(customers) {
   let sent = 0, failed = 0, failures = [];
   const today = DateTime.now().startOf("day");
   const todayStr = today.toISODate();
+  const todayFormatted = today.toFormat("dd-MM-yyyy");
   
-  console.log(`\n=== EMAIL SENDING PROCESS ===`);
-  console.log(`Today's date: ${todayStr}`);
-  console.log(`Total customers: ${customers.length}`);
+  console.log('\n' + '='.repeat(80));
+  console.log('📧 EMAIL SENDING PROCESS STARTED');
+  console.log(`Today's date (ISO): ${todayStr}`);
+  console.log(`Today's date (dd-MM-yyyy): ${todayFormatted}`);
+  console.log(`Total customers to check: ${customers.length}`);
+  console.log('='.repeat(80));
+  
+  let checkedCount = 0;
+  let skippedNotSubscribed = 0;
+  let skippedNoContact = 0;
+  let skippedNoEmail = 0;
+  let skippedNoReminderDate = 0;
+  let skippedNotDue = 0;
+  let skippedAlreadySent = 0;
   
   for (const customer of customers) {
+    checkedCount++;
     const name = customer["Name"] || "Unknown";
+    
+    console.log(`\n${'─'.repeat(60)}`);
+    console.log(`📋 Customer ${checkedCount}/${customers.length}: ${name}`);
     
     // Check subscription status FIRST
     const subscription = (customer["Subscription"] || "").trim().toUpperCase();
+    console.log(`   Subscription: "${subscription}"`);
     
-    console.log(`\n📋 Checking: ${name}`);
-    console.log(`   Subscription Status: ${subscription}`);
-    
-    // Skip if not subscribed
     if (subscription === "NOT SUBSCRIBED" || subscription === "UNSUBSCRIBED") {
-      console.log(`   🚫 NOT SUBSCRIBED - Skipping email`);
+      console.log(`   🚫 NOT SUBSCRIBED - Skipping`);
+      skippedNotSubscribed++;
       continue;
     }
     
-    // If subscription field is empty or anything other than "NOT SUBSCRIBED", treat as subscribed
     if (subscription !== "SUBSCRIBED" && subscription !== "") {
-      console.log(`   ⚠️  Unknown subscription status: "${subscription}" - Treating as SUBSCRIBED`);
+      console.log(`   ⚠️  Unknown subscription: "${subscription}" - Treating as SUBSCRIBED`);
     }
     
     // Skip customers with missing contact info
     if (customer["Manual Contact"] === "MISSING CONTACT") {
-      console.log(`   ⏭️  SKIP: Missing contact info`);
+      console.log(`   ⏭️  MISSING CONTACT - Skipping`);
+      skippedNoContact++;
       continue;
     }
     
     const to = customer["Email Add."];
     if (!to) {
-      console.log(`   ⏭️  SKIP: No email address`);
+      console.log(`   ⏭️  NO EMAIL ADDRESS - Skipping`);
+      skippedNoEmail++;
       continue;
     }
 
@@ -310,20 +363,22 @@ async function sendReminders(customers) {
     const lastEmailType = customer["Email Type"] || "";
     
     console.log(`   Email: ${to}`);
+    console.log(`   Vehicle: ${customer["Veh. Reg. No."]}`);
+    console.log(`   Last Visit: ${customer["Last Visit"]}`);
     console.log(`   Next Reminder: ${nextReminderStr}`);
-    console.log(`   Last Email: ${lastEmailSent} (${lastEmailType})`);
-    console.log(`   Today: ${todayStr}`);
+    console.log(`   Last Email Sent: ${lastEmailSent} (${lastEmailType})`);
     
     // Parse reminder date
     if (!nextReminderStr) {
-      console.log(`   ⏭️  No reminder date set - skipping`);
+      console.log(`   ⏭️  NO REMINDER DATE SET - Skipping`);
+      skippedNoReminderDate++;
       continue;
     }
 
-    // Parse the reminder date (now in dd-MM-yyyy format)
     const nextReminder = parseDate(nextReminderStr);
     if (!nextReminder || !nextReminder.isValid) {
-      console.log(`   ⚠️  Invalid reminder date: ${nextReminderStr}`);
+      console.log(`   ⚠️  INVALID REMINDER DATE: ${nextReminderStr} - Skipping`);
+      skippedNoReminderDate++;
       continue;
     }
 
@@ -331,39 +386,39 @@ async function sendReminders(customers) {
     const daysUntilDue = reminderDate.diff(today, "days").days;
     
     console.log(`   Days until due: ${Math.round(daysUntilDue)}`);
+    console.log(`   Reminder date: ${reminderDate.toISODate()} vs Today: ${todayStr}`);
     
     // Determine email type based on timing
     let emailType = null;
     let template = null;
     
     if (daysUntilDue < 0) {
-      // OVERDUE
       emailType = "OVERDUE";
       template = overdueEmailTemplate(customer);
       console.log(`   🔴 OVERDUE by ${Math.abs(Math.round(daysUntilDue))} days`);
     } else if (daysUntilDue === 0) {
-      // DUE TODAY
       emailType = "DUE_TODAY";
       template = dueTodayEmailTemplate(customer);
       console.log(`   🟡 DUE TODAY`);
     } else if (daysUntilDue <= 7 && daysUntilDue > 0) {
-      // 7-DAY ADVANCE WARNING
       emailType = "ADVANCE_7DAY";
       template = advanceReminderEmailTemplate(customer, Math.round(daysUntilDue));
-      console.log(`   🟢 Due in ${Math.round(daysUntilDue)} days - sending advance reminder`);
+      console.log(`   🟢 DUE IN ${Math.round(daysUntilDue)} DAYS - Advance reminder`);
     } else {
-      console.log(`   ⏭️  Too early to send reminder (due in ${Math.round(daysUntilDue)} days)`);
+      console.log(`   ⏭️  TOO EARLY (${Math.round(daysUntilDue)} days away) - Skipping`);
+      skippedNotDue++;
       continue;
     }
     
     // Check if we already sent this type of email today
     if (lastEmailSent === todayStr && lastEmailType === emailType) {
-      console.log(`   ⏭️  Already sent ${emailType} email today - skipping`);
+      console.log(`   ⏭️  ALREADY SENT ${emailType} TODAY - Skipping`);
+      skippedAlreadySent++;
       continue;
     }
     
     // Send email
-    console.log(`   📧 Sending ${emailType} email...`);
+    console.log(`   📧 SENDING ${emailType} EMAIL...`);
     try {
       await sendEmail(to, template);
       sent++;
@@ -372,21 +427,32 @@ async function sendReminders(customers) {
       customer["Last Email Sent"] = todayStr;
       customer["Email Type"] = emailType;
       
-      console.log(`   ✅ Email sent successfully!`);
+      console.log(`   ✅ EMAIL SENT SUCCESSFULLY!`);
     } catch (e) {
       failed++;
       const errorMsg = `${name} (${to}): ${e.message}`;
       failures.push(errorMsg);
-      console.error(`   ❌ Failed to send: ${e.message}`);
+      console.error(`   ❌ FAILED: ${e.message}`);
     }
   }
   
-  console.log(`\n=== EMAIL SUMMARY ===`);
-  console.log(`✅ Sent: ${sent}`);
-  console.log(`❌ Failed: ${failed}`);
+  console.log('\n' + '='.repeat(80));
+  console.log('📊 EMAIL SENDING SUMMARY');
+  console.log(`Total customers checked: ${checkedCount}`);
+  console.log(`✅ Emails sent: ${sent}`);
+  console.log(`❌ Emails failed: ${failed}`);
+  console.log(`\nSkip Reasons:`);
+  console.log(`   🚫 Not subscribed: ${skippedNotSubscribed}`);
+  console.log(`   📭 No contact info: ${skippedNoContact}`);
+  console.log(`   📧 No email address: ${skippedNoEmail}`);
+  console.log(`   📅 No reminder date: ${skippedNoReminderDate}`);
+  console.log(`   ⏰ Not due yet: ${skippedNotDue}`);
+  console.log(`   🔁 Already sent today: ${skippedAlreadySent}`);
+  
   if (failures.length > 0) {
-    console.log(`Failures:\n  - ${failures.join("\n  - ")}`);
+    console.log(`\nFailures:\n   - ${failures.join("\n   - ")}`);
   }
+  console.log('='.repeat(80) + '\n');
   
   return { sent, failed, failures, updatedCustomers: customers };
 }
@@ -443,6 +509,10 @@ function overdueEmailTemplate(customer) {
 }
 
 async function sendEmail(to, { subject, text }) {
+  console.log(`      → Email Provider: ${EMAIL_PROVIDER}`);
+  console.log(`      → Sending to: ${to}`);
+  console.log(`      → Subject: ${subject}`);
+  
   if (EMAIL_PROVIDER === "smtp") {
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,          
